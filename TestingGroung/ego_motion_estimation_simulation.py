@@ -2,7 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R
 from sklearn.cluster import DBSCAN
-from matplotlib.patches import Ellipse
+from scipy.spatial.distance import cdist
+from matplotlib.patches import Rectangle, Ellipse
 
 # -------------------------------
 # PARAMETERS AND INITIALIZATION
@@ -10,89 +11,130 @@ from matplotlib.patches import Ellipse
 
 np.random.seed(42)  # Reproducibility
 frames_per_second = 30  # Simulation at 30 FPS
+num_frames = 30  # Total frames
 num_frames_per_submap = 10  # Frames per submap
-num_points_range = (2, 7)  # Random number of points per frame
-vehicle_speed = 1.5  # Vehicle's constant speed (m/s) along positive Y-axis
+num_points_range = (1, 7)  # Random number of points per frame
+vehicle_speed = 1.5  # Vehicle's constant speed (m/s)
 time_step = 1 / frames_per_second  # Time step per frame
-doppler_speeds = np.random.uniform(-1.5, -1.2, num_points_range[1])  # Fixed range
 
-# Vehicle dimensions for visualization
+# Vehicle dimensions
 vehicle_length = 4.0  # meters
 vehicle_width = 2.0   # meters
 
-# Initial position and heading of the vehicle
-vehicle_pos = np.array([0.0, 0.0])  # Initial position (x, y)
-vehicle_heading = 0  # Initial heading angle (degrees)
-
 # -------------------------------
-# FUNCTION TO CLUSTER AND PLOT OBJECTS
+# FUNCTION: Generate Submaps
 # -------------------------------
 
-def plot_clusters(points, title, vehicle_pos, prev_points=None, prev_centroids=None):
-    # Perform clustering using DBSCAN
-    dbscan = DBSCAN(eps=1.5, min_samples=2).fit(points)  # Adjusted eps and min_samples
-    cluster_labels = dbscan.labels_
+def generate_submap(start_frame, end_frame, start_distance, end_distance):
+    points = []
+    for i in range(start_frame, end_frame):
+        num_points = np.random.randint(num_points_range[0], num_points_range[1] + 1)
+        distance = np.linspace(start_distance, end_distance, num_frames)[i]
+        frame_points = np.random.rand(num_points, 2) * [20, 5] + [-10, distance]  # X-axis spans [-10, 10]
+        points.append(frame_points)
+    return np.vstack(points)
 
-    # Plot previous points in gray with ellipses
-    if prev_points is not None:
-        plt.scatter(prev_points[:, 0], prev_points[:, 1], c='gray', alpha=0.5, label='Previous Points')
-        
-        # Clustering for previous points
-        prev_dbscan = DBSCAN(eps=1.5, min_samples=2).fit(prev_points)
-        prev_labels = prev_dbscan.labels_
+# Generate submaps
+a1 = generate_submap(0, 10, 20, 15)
+a2 = generate_submap(0, 20, 20, 10)
+a3 = generate_submap(0, 30, 20, 5)
 
-        # Draw ellipses for previous clusters
-        for prev_cluster_id in np.unique(prev_labels):
-            if prev_cluster_id == -1:  # Ignore noise
-                continue
+# -------------------------------
+# FUNCTION: Cluster Points
+# -------------------------------
 
-            prev_cluster_points = prev_points[prev_labels == prev_cluster_id]
-            prev_centroid = np.mean(prev_cluster_points, axis=0)
+def cluster_points(points):
+    """ Perform DBSCAN clustering and filter clusters based on priorities. """
+    dbscan = DBSCAN(eps=1.5, min_samples=2).fit(points)
+    labels = dbscan.labels_
 
-            # Draw ellipse
-            width = np.max(prev_cluster_points[:, 0]) - np.min(prev_cluster_points[:, 0])
-            height = np.max(prev_cluster_points[:, 1]) - np.min(prev_cluster_points[:, 1])
-            ellipse = Ellipse(xy=prev_centroid, width=width, height=height, edgecolor='gray', facecolor='none', linestyle='--')
-            plt.gca().add_patch(ellipse)
+    clusters = {}
+    for cluster_id in np.unique(labels):
+        if cluster_id == -1:  # Ignore noise
+            continue
+        cluster_points = points[labels == cluster_id]
+        size = len(cluster_points)
 
-    # Plot current clusters with bounding boxes
-    for cluster_id in np.unique(cluster_labels):
-        cluster_points = points[cluster_labels == cluster_id]
-        if cluster_id == -1:  # Skip noise
+        # Ignore clusters with <3 points (Priority 3)
+        if size < 3:
             continue
 
-        # Plot cluster points
-        plt.scatter(cluster_points[:, 0], cluster_points[:, 1], label=f"Cluster {cluster_id}")
-
-        # Calculate and plot centroid
+        # Store centroid and priority
         centroid = np.mean(cluster_points, axis=0)
-        plt.scatter(centroid[0], centroid[1], c='black', marker='x')  # Centroid marker
-        plt.annotate(f"C{cluster_id}", (centroid[0], centroid[1]), color='blue')  # Label
+        priority = 1 if size >= 7 else 2  # Priority 1 for 7+, Priority 2 for 3-6
+        clusters[cluster_id] = {'centroid': centroid, 'priority': priority, 'points': cluster_points}
 
-        # Bounding box for current cluster
-        width = np.max(cluster_points[:, 0]) - np.min(cluster_points[:, 0])
-        height = np.max(cluster_points[:, 1]) - np.min(cluster_points[:, 1])
-        plt.gca().add_patch(plt.Rectangle(
+    return clusters
+
+# Perform clustering for a1, a2, a3
+clusters_a1 = cluster_points(a1)
+clusters_a2 = cluster_points(a2)
+clusters_a3 = cluster_points(a3)
+
+# -------------------------------
+# FUNCTION: Transform and Estimate
+# -------------------------------
+
+def estimate_positions(clusters_a1, clusters_a2):
+    """ Estimate positions in a3 based on transformations from a1 → a2. """
+    estimated_positions = {}
+    errors = []
+
+    for cid, cluster_a1 in clusters_a1.items():
+        if cid in clusters_a2:  # Match clusters by ID
+            # Calculate transformation (translation)
+            centroid_a1 = cluster_a1['centroid']
+            centroid_a2 = clusters_a2[cid]['centroid']
+            translation = centroid_a2 - centroid_a1
+
+            # Predict next position
+            estimated_position = centroid_a2 + translation  # Continue motion
+            estimated_positions[cid] = estimated_position
+
+            # Compute error with actual positions in a3
+            if cid in clusters_a3:
+                actual_position = clusters_a3[cid]['centroid']
+                error = np.linalg.norm(estimated_position - actual_position)
+                errors.append(error)
+
+    return estimated_positions, errors
+
+# Estimate positions and errors
+estimated_positions, errors = estimate_positions(clusters_a1, clusters_a2)
+
+# -------------------------------
+# FUNCTION: Plot Clusters
+# -------------------------------
+
+def plot_clusters(clusters, title, original_points=None, estimated_positions=None, vehicle_pos=np.array([0.0, 0.0])):
+    plt.figure(figsize=(8, 8))
+
+    # Plot original points
+    if original_points is not None:
+        plt.scatter(original_points[:, 0], original_points[:, 1], c='gray', alpha=0.5, label='Original Points')
+
+    # Plot clusters with priorities
+    for cid, cluster in clusters.items():
+        centroid = cluster['centroid']
+        plt.scatter(cluster['points'][:, 0], cluster['points'][:, 1], label=f"Cluster {cid}")
+        plt.scatter(centroid[0], centroid[1], c='black', marker='x')  # Centroid marker
+
+        # Bounding box
+        width = np.max(cluster['points'][:, 0]) - np.min(cluster['points'][:, 0])
+        height = np.max(cluster['points'][:, 1]) - np.min(cluster['points'][:, 1])
+        plt.gca().add_patch(Rectangle(
             (centroid[0] - width / 2, centroid[1] - height / 2), width, height,
             fill=False, edgecolor='purple', linewidth=1.5
         ))
+        plt.text(centroid[0], centroid[1], f"P{cluster['priority']}", color='red')
 
-        # Classify priority based on size
-        size = len(cluster_points)
-        if size >= 7:
-            priority = 1
-        elif size >= 3:
-            priority = 2
-        else:
-            priority = 3
-        plt.text(centroid[0], centroid[1], f"P{priority}", color='red', fontsize=10)
+        # Estimated positions and errors
+        if estimated_positions and cid in estimated_positions:
+            plt.scatter(estimated_positions[cid][0], estimated_positions[cid][1], c='orange', marker='^', label=f"Est. C{cid}")
+            plt.plot([centroid[0], estimated_positions[cid][0]],
+                     [centroid[1], estimated_positions[cid][1]], 'k--')
 
-        # Dotted lines for motion paths
-        if prev_centroids is not None:
-            prev_centroid = prev_centroids[cluster_id]
-            plt.plot([prev_centroid[0], centroid[0]], [prev_centroid[1], centroid[1]], 'k--')
-
-    # Vehicle box visualization
+    # Draw the vehicle
     plt.plot([-vehicle_width/2, vehicle_width/2, vehicle_width/2, -vehicle_width/2, -vehicle_width/2] + vehicle_pos[0],
              [vehicle_pos[1], vehicle_pos[1], vehicle_pos[1] + vehicle_length, vehicle_pos[1] + vehicle_length, vehicle_pos[1]],
              'k-', label='Vehicle')
@@ -105,39 +147,12 @@ def plot_clusters(points, title, vehicle_pos, prev_points=None, prev_centroids=N
     plt.grid()
 
 # -------------------------------
-# GENERATE SUBMAPS (a1, a2, a3)
+# PLOT RESULTS
 # -------------------------------
 
-def generate_submap(num_frames, start_distance, end_distance):
-    points = []
-    for i in range(num_frames):
-        num_points = np.random.randint(num_points_range[0], num_points_range[1] + 1)
-        distance = np.linspace(start_distance, end_distance, num_frames)[i]
-        frame_points = np.random.rand(num_points, 2) * [20, 5] + [0, distance]
-        points.append(frame_points)
-    return np.vstack(points)
-
-a1 = generate_submap(num_frames_per_submap, 20, 15)
-a2 = generate_submap(num_frames_per_submap, 15, 10)
-a3 = generate_submap(num_frames_per_submap, 10, 5)
-
-# -------------------------------
-# TRANSFORMATIONS AND PLOTS
-# -------------------------------
-
-plt.figure(figsize=(15, 10))
-
-# Plot 1: Submap a1
-plt.subplot(1, 3, 1)
-plot_clusters(a1, "Submap a1", vehicle_pos)
-
-# Plot 2: Submap a1 → a2
-plt.subplot(1, 3, 2)
-plot_clusters(a2, "Submap a1 → a2", vehicle_pos, prev_points=a1)
-
-# Plot 3: Submap a2 → a3
-plt.subplot(1, 3, 3)
-plot_clusters(a3, "Submap a2 → a3", vehicle_pos, prev_points=a2)
+plot_clusters(clusters_a1, "Submap a1", a1)
+plot_clusters(clusters_a2, "Submap a2", a1, estimated_positions)
+plot_clusters(clusters_a3, "Submap a3", a2)
 
 plt.tight_layout()
 plt.show()
