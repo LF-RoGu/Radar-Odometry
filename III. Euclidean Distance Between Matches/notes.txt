@@ -1,0 +1,4 @@
+The Euclidean distance measures how far apart corresponding points are in space:
+𝑑 = sqrt((𝑥2−𝑥1)^2+(𝑦2−𝑦1)^2)
+ 
+​

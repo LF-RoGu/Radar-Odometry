@@ -1,0 +1,4 @@
+Find the transformation 
+𝑇, (rotation + translation) that aligns the source point cloud 
+𝑃, with the target 
+𝑄, minimizing the distance between corresponding points.

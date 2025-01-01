@@ -1,0 +1,3 @@
+Why Doppler Velocity Helps:
+Doppler velocity provides additional information about the movement of detected points relative to the radar.
+This velocity data augments ICP by constraining point-to-point matching, rejecting outliers, and improving alignment between scans.

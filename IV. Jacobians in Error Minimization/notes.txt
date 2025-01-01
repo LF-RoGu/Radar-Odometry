@@ -1,0 +1,16 @@
+The position error is minimized by adjusting 
+𝑇 to align 𝑃 and 𝑄
+
+ρ: Geman McClure kernel reduces outlier influence.
+
+V. Role of Jacobians in Error Minimization
+Why Jacobians:
+Jacobians linearize non-linear equations, simplifying optimization.
+
+VI. Rigid Body Geometry
+Benefit:
+Ensures physical constraints (e.g., no deformation), improving transformations.
+
+VII. Radial Velocity and Velocity Errors
+Expected Velocity:
+Radial velocity 𝑉𝑘 aligns the vehicle’s motion with sensor measurements.

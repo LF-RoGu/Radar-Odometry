@@ -1,0 +1,60 @@
+Key Observations from the Lecture:
+
+Sparse Radar Points:
+Radar point clouds are sparse and may contain noise.
+A single scan may not provide enough data for accurate alignment.
+
+Submap Aggregation:
+To handle sparsity, a submap is built by combining ten previous scans.
+This improves context and robustness for the alignment process.
+
+Two Steps in Each Iteration:
+Find Correspondences: Match current scan points to the submap using Euclidean distance.
+Minimize Error: Optimize the transformation by minimizing the error between matches.
+
+--------------------------------------------------------------------------------
+Code Explanation:
+Submap Creation:
+
+Combines 10 previous scans into a single submap.
+Mimics the process described in the lecture to address sparsity in radar data.
+Current Scan Transformation:
+
+Applies a 15-degree rotation and (0.5, 1.0) translation to simulate motion.
+Visualization:
+
+Shows:
+Submap (gray) → Represents the aggregated historical context.
+Current scan (blue) → Raw data before applying transformation.
+Transformed scan (green) → Updated scan after applying transformation.
+Point Correspondences:
+
+Draws dashed lines to visualize the correspondences between points before and after transformation.
+
+--------------------------------------------------------------------------------
+How Does This Relate to the Lecture?
+Submap Aggregation:
+Combines past scans to handle sparse radar data, providing richer context for ICP matching.
+Transformation with Error Minimization:
+Prepares the data for error minimization using Jacobian-based optimization, which we'll expand on later.
+ICP Workflow:
+Matches the current scan to the submap and iteratively minimizes errors between correspondences.
+
+--------------------------------------------------------------
+Submap Size with 30 FPS Sampling Rate
+Sampling at 30 FPS implies you receive 30 frames (scans) per second.
+
+The minimum submap size of 10 scans covers 1/3rd of a second (10 scans / 30 FPS = 0.33 seconds).
+
+Why 10 Scans?
+
+It ensures robustness by aggregating spatial data over time.
+Reduces the impact of sparse measurements and noisy points by providing context from prior scans.
+Allows detection of consistent structures and reduces the influence of dynamic objects (e.g., moving pedestrians or vehicles).
+At 30 FPS, a submap with 10 scans is a balanced compromise between:
+Capturing sufficient past data for alignment.
+Keeping the computational load manageable for real-time processing.
+
+[!]Larger submaps (e.g., 20–30 scans) may improve stability for slow-moving vehicles, but:
+Increase memory usage and computation time.
+May include outdated information if the vehicle moves quickly.
